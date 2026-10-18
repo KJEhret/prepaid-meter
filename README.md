@@ -11,8 +11,6 @@ BEng project *Prepaid Energy Monitoring for Student Residences* (K. Ehret, Stell
 Meter (ESP32-S3) <--MQTT--> Mosquitto broker <--> Python backend <--> Web dashboard
 ```
 
-> **Safety:** connects to 230 V mains. Prototype, not a certified meter.
-
 ## Folders
 
 - `firmware/`: ESP32-S3 code (PlatformIO)
