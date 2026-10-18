@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html data-bs-theme="light" lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+    <title>ElectricityManagementUI - Client</title>
+    <link rel="stylesheet" href="/static/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h1 class="h2">Smart Energy Meter</h1>
+                <p class="text-muted">Live electricity monitoring and prepaid control</p>
+            </div>
+            <div class="col">
+                <div class="d-flex justify-content-end align-items-center gap-2">
+                    <p class="fw-bold text-end mt-3 mb-0" id="current-user">{{ username }}</p><span class="badge bg-primary mt-3" id="current-role">{{ role }}</span>
+                </div>
+                <div class="d-flex justify-content-end align-items-center gap-2 mt-1"><span class="text-muted" id="current-meter">Meter: {{ device_id }}</span><a id="logout-link" href="/logout">Logout</a></div>
+            </div>
+        </div>
+        <div class="row mb-2 py-3" style="border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid;padding-top:12px;padding-bottom:12px;">
+            <div class="col">
+                <p class="fw-semibold text-danger mb-0" id="meter-status">Meter Offline</p>
+            </div>
+            <div class="col">
+                <p class="text-end text-muted mb-0" id="last-update">Last update: --</p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Real Power</p>
+                        <h1 id="real-power" class="h3">0.0 W</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Balance Remaining</p>
+                        <h1 id="balance-remaining" class="h3">0.000 kWh</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Today's Energy</p>
+                        <h1 id="today-energy" class="h3">0.000 kWh</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">This Month's Energy</p>
+                        <h1 id="month-energy" class="h3">0.000 kWh</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Load Status</p>
+                        <h1 class="text-danger h3" id="load-status">OFF</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-3 mb-3">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Voltage</p>
+                        <h1 id="voltage" class="h3">0.0 V</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Current</p>
+                        <h1 id="current" class="h3">0.00 A</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Power Factor</p>
+                        <h1 id="power-factor" class="h3">0.000</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Apparent Power</p>
+                        <h1 id="apparent-power" class="h3">0.0 VA</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <h1 class="h4">Energy Usage Today</h1>
+        <div class="row">
+            <div class="col">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body" style="min-height:280px;">
+                        <p class="text-center text-muted" style="border-bottom-width:1px;border-bottom-style:solid;">Cumulative energy usage since the first reading today.</p>
+                        <canvas id="energy-chart" width="1000" height="230"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-3 mb-2">
+            <div class="col">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <h1 class="h4">Load Control</h1>
+                        <p class="fw-semibold mb-3" id="load-control-status">Current status: OFF</p><button class="btn btn-success me-2" id="load-on-button" type="button">Turn Load On</button><button class="btn btn-danger" id="load-off-button" type="button">Turn Load OFF</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/bootstrap/js/bootstrap.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

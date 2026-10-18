@@ -1,0 +1,18 @@
+# PlatformIO build output and editor files
+firmware/.pio/
+.vscode/
+
+# Backend databases (telemetry and user accounts) and local settings
+*.db
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

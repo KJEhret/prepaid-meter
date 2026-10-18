@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html data-bs-theme="light" lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+    <title>Electricity Management System - Admin</title>
+    <link rel="stylesheet" href="/static/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h1 class="h2">Smart Energy Meter</h1>
+                <p class="text-muted">Live electricity monitoring and prepaid control</p>
+            </div>
+            <div class="col">
+                <div class="d-flex justify-content-end align-items-center gap-2">
+                    <p class="fw-bold text-end mt-3 mb-0" id="current-user">{{ username }}</p><span class="badge bg-primary mt-3" id="current-role">{{ role }}</span>
+                </div>
+                <div class="d-flex justify-content-end align-items-center gap-2 mt-1"><select id="meter-select" name="selected_meter_id">
+                        <option value="">Select Meter</option>
+                        {% for meter in meters %}
+                        <option value="{{ meter }}" {% if meter == selected_device %}selected{% endif %}>{{ meter }}</option>
+                        {% endfor %}
+                    </select><a id="logout-link" href="/logout">Logout</a></div>
+            </div>
+        </div>
+        <div class="row mb-2 py-3" style="border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid;padding-top:12px;padding-bottom:12px;">
+            <div class="col">
+                <p class="fw-semibold text-danger mb-0" id="meter-status">Meter Offline</p>
+            </div>
+            <div class="col">
+                <p class="text-end text-muted mb-0" id="last-update">Last update: --</p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Real Power</p>
+                        <h1 id="real-power" class="h3">0.0 W</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Balance Remaining</p>
+                        <h1 id="balance-remaining" class="h3">0.000 kWh</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Today's Energy</p>
+                        <h1 id="today-energy" class="h3">0.000 kWh</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">This Month's Energy</p>
+                        <h1 id="month-energy" class="h3">0.000 kWh</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Load Status</p>
+                        <h1 class="text-danger h3" id="load-status">OFF</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-3 mb-3">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Voltage</p>
+                        <h1 id="voltage" class="h3">0.0 V</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Current</p>
+                        <h1 id="current" class="h3">0.00 A</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Power Factor</p>
+                        <h1 id="power-factor" class="h3">0.000</h1>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <p class="text-muted mb-1">Apparent Power</p>
+                        <h1 id="apparent-power" class="h3">0.0 VA</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <h1 class="h4">Energy Usage Today</h1>
+        <div class="row">
+            <div class="col">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body" style="min-height:280px;">
+                        <p class="text-center text-muted" style="border-bottom-width:1px;border-bottom-style:solid;">Cumulative energy usage since the first reading today.</p>
+                        <canvas id="energy-chart" width="1000" height="230"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-3 mb-2">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <h1 class="h4">Load Control</h1>
+                        <p class="fw-semibold mb-3" id="load-control-status">Current status: OFF</p><button class="btn btn-success me-2" id="load-on-button" type="button">Turn Load On</button><button class="btn btn-danger" id="load-off-button" type="button">Turn Load OFF</button>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <h1 class="h4">Balance Management</h1>
+                        <p class="fw-semibold mb-3" id="admin-current-balance-1">Current Balance: 0.000 kWh</p>
+                        <div class="d-flex align-items-center gap-2"><label class="form-label text-nowrap mb-0">Add Balance (kWh)</label><input class="form-control" type="number" id="balance-add-input" placeholder="Enter amount"><button class="btn btn-primary" id="balance-add-button" type="button">Add</button><button class="btn btn-secondary" id="balance-set-button" type="button">Set</button></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <h1 class="h4">User Management</h1>
+        <div class="row mb-4">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <h1 class="h5">Add User</h1>
+                        <form id="add-user-form"><label class="form-label">Username</label><input class="form-control" type="text" id="new-user-name" placeholder="Enter username" name="username"><label class="form-label">Password</label><input class="form-control" type="password" id="new-password" placeholder="Enter password" name="password"><label class="form-label">Meter ID</label><select class="form-select" id="new-user-meter" name="device_id">
+                                <option value="">Select meter</option>
+                                {% for meter in meters %}
+                                <option value="{{ meter }}">{{ meter }}</option>
+                                {% endfor %}
+                            </select><label class="form-label">Role</label><select class="form-select" id="new-user-role" name="role">
+                                <option value="client" selected>Client</option>
+                                <option value="admin">Admin</option>
+                            </select><button class="btn btn-primary mt-2" id="add-user-button" type="submit">Add User</button></form>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body border-0 shadow-sm">
+                        <h1 class="h5">Existing Users</h1>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <th>Username</th>
+                                        <th>Meter</th>
+                                        <th>Role</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for account in users %}
+                                    <tr>
+                                        <td><input class="form-check-input user-select" type="radio" name="selected-user" value="{{ account.username }}"></td>
+                                        <td>{{ account.username }}</td>
+                                        <td>{{ account.device_id or "—" }}</td>
+                                        <td>{{ account.role|title }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-danger" id="remove-user-button" type="button">Remove Selected User</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/bootstrap/js/bootstrap.min.js"></script>
+    <script src="/static/js/app.js?v=2"></script>
+</body>
+</html>
