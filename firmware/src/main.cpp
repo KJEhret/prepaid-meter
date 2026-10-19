@@ -297,7 +297,7 @@ void calculateMeasurements() {
 	// Mean voltage and current
 	double meanV = sumV / WINDOW_SIZE;
 	double meanI = sumI / WINDOW_SIZE;
-	// Mean-square values with DC offset removed
+	// Mean square values with DC offset removed
 	double v2 = sumV2 / WINDOW_SIZE - meanV * meanV;
 	double i2 = sumI2 / WINDOW_SIZE - meanI * meanI;
 
@@ -340,6 +340,7 @@ void calculateMeasurements() {
 		double usedKWh = realPower * seconds / 3600000.0; // convert W to kWh
 		energyKWh += usedKWh;
 		balanceKWh -= usedKWh;
+        // Ensure balance does not go negative and update load relay if negative.
 		if (balanceKWh <= 0.0) {
 			balanceKWh = 0.0;
 			updateLoad();
@@ -350,17 +351,17 @@ void calculateMeasurements() {
 }
 
 /**
- * @brief Handles load and balance commands received over MQTT.
- * @param topic    Topic the message arrived on (load/set, balance/set or balance/add)
- * @param payload  Message bytes (not null-terminated)
- * @param length   Number of bytes in the payload
- * @note  Each command updates the relay and OLED and saves the state immediately.
+ * @brief Handles commands received over MQTT.
+ * @param topic    Topic message arrived on (load/set, balance/set, balance/add)
+ * @param payload  Message bytes
+ * @param length   Number of bytes in payload
+ * @note  Each command updates relay and OLED and saves the state immediately.
  */
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
 	String message;
 	for (unsigned int i = 0; i < length; i++) message += (char)payload[i];
 	message.trim();
-	// Load ON/OFF command
+	// Load on/off command
 	if (strcmp(topic, TOPIC_LOAD.c_str()) == 0) {
 		loadRequested = message == "1" || message.equalsIgnoreCase("ON");
 		updateLoad();
@@ -387,7 +388,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 /**
  * @brief Connects to the MQTT broker and subscribes to the command topics.
- * @note  Only tries when Wi-Fi is connected, at most once every 5 s.
+ * @note  Only tries when WiFi is connected at most once every 5s.
  */
 void connectMQTT() {
 	if (WiFi.status() != WL_CONNECTED) return;
@@ -404,8 +405,8 @@ void connectMQTT() {
 }
 
 /**
- * @brief Prints the latest measurements, balance and load state as JSON to the
- *        serial monitor and publishes them over MQTT when connected.
+ * @brief Prints the latest measurements, balance and load state as JSON to
+ *        serial monitor and publishes them to MQTT when connected.
  */
 void publishTelemetry() {
 	char payload[300];
@@ -431,8 +432,8 @@ void publishTelemetry() {
 }
 
 /**
- * @brief Starts the meter: restores the saved state and relay, starts the OLED,
- *        resets and configures the ADC, starts Wi-Fi and MQTT in the background
+ * @brief Restores the saved state, starts the OLED,
+ *        resets and configures the ADC, starts WiFi and MQTT in the background
  *        and enables the DRDY interrupt.
  */
 void setup() {
@@ -481,19 +482,8 @@ void setup() {
 	// Configure ADC
 	configureADC();
 	Serial.println("ADS131M02 configured");
-	Serial.println("Voltage PGA = 2");
-	Serial.println("Current PGA = 4");
-	Serial.print("Expected sample rate = ");
-	Serial.println(SAMPLE_RATE);
-	Serial.print("Voltage scale = ");
-	Serial.println(VOLTAGE_SCALE, 2);
-	Serial.print("Current scale = ");
-	Serial.println(CURRENT_SCALE, 2);
-	Serial.print("Phase correction = ");
-	Serial.print(PHASE_SHIFT_SAMPLES);
-	Serial.println(" samples");
 
-	// Wi-Fi
+	// WiFi
 	WiFi.mode(WIFI_STA);
 	WiFi.setAutoReconnect(true);
 	WiFi.begin(WIFI_NAME, WIFI_PASSWORD);
@@ -502,7 +492,7 @@ void setup() {
 
 	// MQTT
 	mqtt.setServer(MQTT_BROKER, MQTT_PORT);
-	mqtt.setCallback(mqttCallback);
+	mqtt.setCallback(mqttCallback); // Set callback for incoming messages
 	lastMQTTAttempt = millis() - 5000;
 	connectMQTT();
 
@@ -523,13 +513,12 @@ void setup() {
 
 	// Initial OLED values
 	updateOLED();
-	Serial.println();
 	Serial.println("Power meter started");
 }
 
 /**
  * @brief Main loop: reads and accumulates waiting ADC samples, completes a
- *        measurement window every 8000 sample pairs, keeps Wi-Fi and MQTT
+ *        measurement window every 8000 sample pairs, keeps WiFi and MQTT
  *        connected, publishes telemetry once per second and saves changed
  *        state at most once per minute.
  */
@@ -551,6 +540,7 @@ void loop() {
 		sumI += current;
 		sumV2 += voltage * voltage;
 		sumI2 += current * current;
+
 		// Apply phase correction only to instantaneous real-power calculation.
 		double delayedVoltage = phaseDelayBuffer[phaseDelayIndex];
 		phaseDelayBuffer[phaseDelayIndex] = voltage;
@@ -558,7 +548,7 @@ void loop() {
 		if (++phaseDelayIndex >= PHASE_SHIFT_SAMPLES) {
 			phaseDelayIndex = 0;
 		}
-
+		// Accumulate real power only after the phase delay buffer is filled.
 		if (phaseDelayCount < PHASE_SHIFT_SAMPLES) {
 			phaseDelayCount++;
 		} else {
@@ -569,12 +559,11 @@ void loop() {
 		}
 		sampleCount++;
 
-		// Complete one-second measurement window
+		// Complete 1s measurement window
 		if (sampleCount >= WINDOW_SIZE) {
 			calculateMeasurements();
 			updateOLED();
-			// The OLED update (1024-byte buffer over I2C at 400 kHz) takes
-			// about 23 ms, so DRDY events counted meanwhile are discarded.
+			// The OLED update takes about 23ms so DRDY events ignored.
 			noInterrupts();
 			samplesWaiting = 0;
 			interrupts();
@@ -601,7 +590,7 @@ void loop() {
 		lastPublish = millis();
 		publishTelemetry();
 	}
-	// Save changed state at most once per minute to limit flash wear
+	// Save changed state at most once per minute
 	if (stateChanged && millis() - lastSave >= 60000) {
 		lastSave = millis();
 		saveState();
