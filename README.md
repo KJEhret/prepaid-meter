@@ -42,7 +42,7 @@ Meter (ESP32-S3) <--MQTT--> Mosquitto broker <--> Python backend <--> Web dashbo
    ```
 
 3. Open `http://localhost:8000`; log in as `admin`
-   - Password: printed in the console on first start, or set with the `ADMIN_PASSWORD` environment variable
+   - Password: printed in the console on first start
 
 ## MQTT topics
 

@@ -4,27 +4,18 @@ Part of the BEng final-year project "Prepaid Energy Monitoring for Student
 Residences" (K. Ehret, Stellenbosch University, 2026). The backend design is
 described in Section 3.3.4 of the report.
 
-One Python program links the meters to the web dashboard:
-  - A Paho MQTT client subscribes to meter/+/telemetry on the local Mosquitto
-    broker and stores every message in meter.db.
-  - FastAPI routes, served by Uvicorn on port 8000, provide the login page,
-    the administrator and client dashboards, and the JSON API they poll.
-  - Load and balance commands from the dashboard are published to the
-    selected meter over MQTT.
+Receives meter readings over MQTT, stores them in meter.db, and serves
+the login and dashboards on port 8000. Sends load and balance commands
+to meters over MQTT.
 
-Databases (created on first start, next to this file):
-  meter.db    telemetry table: one row per telemetry message
-  clients.db  users table: username, salted PBKDF2 password hash, assigned
-              meter and role (admin or client)
+User accounts are stored in clients.db. An admin account is created
+if none exists, with a random password printed once in the console.
 
-On first start, an "admin" account is created. Its password is taken from the
-ADMIN_PASSWORD environment variable or, if that is not set, generated and
-printed once in the console.
+Backend design: report Section 3.3.4.
 """
 
 import hashlib
 import json
-import os
 import secrets
 import sqlite3
 from datetime import datetime
@@ -43,59 +34,113 @@ BASE_DIR = Path(__file__).resolve().parent
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 
-TELEMETRY_TOPIC = "meter/+/telemetry"  # "+" matches any meter's device ID
+TELEMETRY_TOPIC = "meter/+/telemetry"  # + matches any device ID
 METER_DATABASE = BASE_DIR / "meter.db"
 CLIENT_DATABASE = BASE_DIR / "clients.db"
-OFFLINE_SECONDS = 5  # a meter is shown offline after 5 s without telemetry
+OFFLINE_SECONDS = 5  # a meter is shown offline after 5s without telemetry
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 # Login sessions, keyed by the random token stored in the browser cookie.
-# They are kept in memory, so restarting the backend logs everyone out.
+# They are kept in memory so restarting the backend logs everyone out.
 sessions = {}
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-# Opens a SQLite database and allows rows to be accessed by column name.
 def open_db(path):
+    """Open a SQLite database with rows accessible by column name.
+
+    Args:
+        path: Path to the database file.
+
+    Returns:
+        An open sqlite3 connection.
+    """
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     return db
 
-# Hashes a password using PBKDF2 and a random salt.
 def hash_password(password, salt=None):
-    salt = salt or secrets.token_hex(16)
+    """Hash a password with PBKDF2-SHA256 (100 000 iterations).
+
+    Args:
+        password: Plain-text password.
+        salt: Hex salt to reuse.
+
+    Returns:
+        A "salt$hash" string for storing in clients.db.
+    """
+    salt = salt or secrets.token_hex(16) # use random 32 character hex string if no salt provided
     password_hash = hashlib.pbkdf2_hmac(
         "sha256", password.encode(), salt.encode(), 100_000
     ).hex()
     return f"{salt}${password_hash}"
 
-# Checks a password against the stored password hash.
 def check_password(password, saved_hash):
+    """Check a password against a stored "salt$hash" string.
+
+    Args:
+        password: Password entered at login.
+        saved_hash: Stored "salt$hash" string from clients.db.
+
+    Returns:
+        True if the password matches.
+    """
     salt = saved_hash.split("$", 1)[0]
-    return hash_password(password, salt) == saved_hash
+    if hash_password(password, salt) == saved_hash:
+        return True
+    else: return False
 
-# Reads URL-encoded form data from an HTTP request.
 async def form_data(request):
-    raw = (await request.body()).decode()
-    return {key: values[0] for key, values in parse_qs(raw).items()}
+    """Read URL-encoded form data from a request.
 
-# Returns the user associated with the current browser session.
+    Returns:
+        A dict of field names to values (first value of each field).
+    """
+    body = await request.body()
+    text = body.decode()
+    parsed_data = parse_qs(text)
+
+    form = {}
+    for key, values in parsed_data.items():
+        form[key] = values[0]
+
+    return form
+
 def get_user(request):
+    """Return the logged-in user's session, or None.
+
+    The session is found with the "session" cookie set at login.
+    """
     return sessions.get(request.cookies.get("session"))
 
-# Checks whether a user has administrator privileges.
 def is_admin(user):
+    """Return True if the user is logged in as an administrator."""
     return bool(user and user["role"] == "admin")
 
-# Returns the client's assigned meter or the meter selected by an admin.
 def get_device(user):
+    """Return the meter the user is working with.
+
+    Administrators use the meter selected on the dashboard; clients use the
+    meter assigned to their account.
+
+    Returns:
+        The meter's device ID, or None if no meter is selected.
+    """
     if not user:
         return None
-    return user.get("selected_device") if is_admin(user) else user.get("device_id")
+    
+    if is_admin(user):
+        return user.get("selected_device")
+    else:
+        return user.get("device_id")
 
-# Creates the required databases, tables and default administrator account.
 def setup_databases():
+    """Create the meter.db and clients.db tables if they do not exist.
+
+    Also creates an "admin" account if no administrator exists, with a
+    random password printed once in the console.
+    """
     with open_db(METER_DATABASE) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS telemetry (
@@ -112,10 +157,6 @@ def setup_databases():
                 load INTEGER
             )
         """)
-        # Adds the load column to databases created before it existed.
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(telemetry)")}
-        if "load" not in columns:
-            db.execute("ALTER TABLE telemetry ADD COLUMN load INTEGER DEFAULT 0")
 
     with open_db(CLIENT_DATABASE) as db:
         db.execute("""
@@ -127,44 +168,41 @@ def setup_databases():
                 role TEXT
             )
         """)
-        # Administrators select a meter on the dashboard instead of having one
-        # assigned.
-        db.execute("UPDATE users SET device_id = NULL WHERE role = 'admin'")
-        existing = db.execute(
-            "SELECT id FROM users WHERE role = 'admin'"
-        ).fetchone()
-
+        
         # Creates a default admin account only if no admin exists yet.
+        existing = db.execute("SELECT id FROM users WHERE role = 'admin'").fetchone()
         if existing is None:
-            admin_password = os.environ.get("ADMIN_PASSWORD")
-            if not admin_password:
-                admin_password = secrets.token_urlsafe(9)
-                print("Created user 'admin' with password:", admin_password)
+            admin_password = secrets.token_urlsafe(9) # creates a random 12 character password
+            print("Created user 'admin' with password:", admin_password)
             db.execute("""
-                INSERT INTO users (username, password_hash, device_id, role)
-                VALUES (?, ?, NULL, 'admin')
-            """, ("admin", hash_password(admin_password)))
+                INSERT INTO users (username, password_hash, device_id, role) VALUES (?, ?, NULL, 'admin')""", 
+            ("admin", hash_password(admin_password)))
 
-# Finds and returns a user account using its username.
 def find_user(username):
+    """Return the user account with this username, or None."""
     with open_db(CLIENT_DATABASE) as db:
         row = db.execute(
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
     return dict(row) if row else None
 
-# Returns all users for display on the admin dashboard.
 def get_users():
+    """Return all user accounts (username, meter and role) for the admin dashboard."""
     with open_db(CLIENT_DATABASE) as db:
         rows = db.execute("""
             SELECT username, device_id, role
             FROM users
             ORDER BY username
         """).fetchall()
-    return [dict(row) for row in rows]
+    
+    users = []
+    for row in rows:
+        users.append(dict(row))
+    return users
 
 # Returns all known meter IDs from telemetry and client assignments.
 def get_meter_ids():
+    """Return the sorted IDs of all meters that have sent telemetry."""
     meter_ids = set()
 
     with open_db(METER_DATABASE) as db:
@@ -173,22 +211,22 @@ def get_meter_ids():
             FROM telemetry
             WHERE device_id IS NOT NULL
         """).fetchall()
-        meter_ids.update(row["device_id"] for row in rows if row["device_id"])
 
-    with open_db(CLIENT_DATABASE) as db:
-        rows = db.execute("""
-            SELECT DISTINCT device_id
-            FROM users
-            WHERE role = 'client' AND device_id IS NOT NULL
-        """).fetchall()
-        meter_ids.update(row["device_id"] for row in rows if row["device_id"])
+    for row in rows:
+       meter_ids.add(row["device_id"])
 
     return sorted(meter_ids)
 
-# Calculates the energy consumed by a meter over a selected time period.
-# The prefix selects the period by timestamp (e.g. "2026-10" for a month); the
-# result is the meter's cumulative energy at the last reading minus the first.
 def period_energy(device_id, prefix):
+    """Return the energy a meter used during a period.
+
+    Args:
+        device_id: Meter ID.
+        prefix: Start of the timestamps in the period, e.g. "2026-10" for a month.
+
+    Returns:
+        Last minus first cumulative energy reading in kWh, or 0 if there is no data.
+    """
     with open_db(METER_DATABASE) as db:
         first = db.execute("""
             SELECT energy_kwh FROM telemetry
@@ -202,20 +240,24 @@ def period_energy(device_id, prefix):
             ORDER BY id DESC LIMIT 1
         """, (device_id, prefix + "%")).fetchone()
 
-    if not first or not last:
+    if first is None or last is None:
         return 0.0
     return max(0.0, last["energy_kwh"] - first["energy_kwh"])
 
-# Subscribes to meter telemetry when the MQTT broker connection is established.
 def on_connect(client, userdata, flags, reason_code, properties):
+    """MQTT callback: subscribe to all meters' telemetry once connected."""
     if reason_code == 0:
         print("MQTT connected")
         client.subscribe(TELEMETRY_TOPIC)
     else:
         print("MQTT connection failed:", reason_code)
 
-# Stores incoming MQTT telemetry messages in the meter database.
 def on_message(client, userdata, message):
+    """MQTT callback: store one telemetry message in meter.db.
+
+    The meter ID is taken from the topic meter/<device_id>/telemetry, and the
+    timestamp is the time the backend received the message.
+    """
     try:
         data = json.loads(message.payload.decode())
         device_id = message.topic.split("/")[1]  # meter/<device_id>/telemetry
@@ -242,16 +284,20 @@ def on_message(client, userdata, message):
     except Exception as error:
         print("MQTT error:", error)
 
-# Displays the login page.
 @app.get("/login")
 def login_page(request: Request):
+    """GET /login: show the login page."""
     return templates.TemplateResponse(
         request=request, name="login.html", context={"error": ""}
     )
 
-# Verifies login details and creates a browser session.
 @app.post("/login")
 async def login(request: Request):
+    """POST /login: check the username and password and start a session.
+
+    On success, stores a new session, sets its random token as an HttpOnly
+    cookie and redirects to the dashboard.
+    """
     form = await form_data(request)
     user = find_user(form.get("username", ""))
 
@@ -277,17 +323,17 @@ async def login(request: Request):
     response.set_cookie("session", token, httponly=True, samesite="lax")
     return response
 
-# Removes the current login session and returns to the login page.
 @app.get("/logout")
 def logout(request: Request):
+    """GET /logout: end the session and return to the login page."""
     sessions.pop(request.cookies.get("session"), None)
     response = RedirectResponse("/login")
     response.delete_cookie("session")
     return response
 
-# Displays either the administrator or client dashboard.
 @app.get("/")
 def dashboard(request: Request):
+    """GET /: show the administrator or client dashboard, or redirect to login."""
     user = get_user(request)
     if user is None:
         return RedirectResponse("/login")
@@ -308,9 +354,13 @@ def dashboard(request: Request):
         context=context
     )
 
-# Changes the meter currently selected by an administrator.
 @app.post("/api/select-meter")
 async def select_meter(request: Request):
+    """POST /api/select-meter: choose which meter an administrator views.
+
+    The choice is stored in the admin's session and used by get_device().
+    Admin only.
+    """
     user = get_user(request)
     if not is_admin(user):
         return JSONResponse({"error": "not allowed"}, status_code=403)
@@ -324,9 +374,13 @@ async def select_meter(request: Request):
     user["selected_device"] = device_id
     return {"status": "ok", "device_id": device_id}
 
-# Returns the most recent telemetry values for the current meter.
 @app.get("/api/latest")
 def latest(request: Request):
+    """GET /api/latest: return the latest telemetry for the current meter.
+
+    A meter with no telemetry for OFFLINE_SECONDS is shown as offline with
+    its values and load set to 0.
+    """
     user = get_user(request)
     if user is None:
         return JSONResponse({"error": "login required"}, status_code=401)
@@ -361,9 +415,9 @@ def latest(request: Request):
 
     return data
 
-# Returns the meter's energy consumption data for the current day.
 @app.get("/api/day")
 def day_data(request: Request):
+    """GET /api/day: return today's cumulative energy, one point per minute."""
     user = get_user(request)
     if user is None:
         return JSONResponse({"error": "login required"}, status_code=401)
@@ -396,9 +450,9 @@ def day_data(request: Request):
     ]
     return {"points": points, "total": points[-1]["energy"]}
 
-# Returns the total energy consumed during the current month.
 @app.get("/api/month")
 def month_data(request: Request):
+    """GET /api/month: return the energy used this month."""
     user = get_user(request)
     if user is None:
         return JSONResponse({"error": "login required"}, status_code=401)
@@ -412,9 +466,9 @@ def month_data(request: Request):
         "total": period_energy(device_id, current_month)
     }
 
-# Sends an ON or OFF relay command to the selected meter.
 @app.post("/api/load")
 async def set_load(request: Request):
+    """POST /api/load: send an ON or OFF command to the current meter over MQTT."""
     user = get_user(request)
     if user is None:
         return JSONResponse({"error": "login required"}, status_code=401)
@@ -432,9 +486,12 @@ async def set_load(request: Request):
     mqtt_client.publish(f"meter/{device_id}/load/set", value)
     return {"status": "ok"}
 
-# Allows an administrator to add to or set the selected meter balance.
 @app.post("/api/balance")
 async def change_balance(request: Request):
+    """POST /api/balance: add to or set the current meter's balance over MQTT.
+
+    Admin only.
+    """
     user = get_user(request)
     if not is_admin(user):
         return JSONResponse({"error": "not allowed"}, status_code=403)
@@ -458,9 +515,12 @@ async def change_balance(request: Request):
     mqtt_client.publish(f"meter/{device_id}/balance/{action}", value)
     return {"status": "ok"}
 
-# Creates a new administrator or client user account.
 @app.post("/api/users")
 async def add_user(request: Request):
+    """POST /api/users: create an administrator or client account.
+
+    Clients must be assigned an existing meter. Admin only.
+    """
     admin = get_user(request)
     if not is_admin(admin):
         return JSONResponse({"error": "not allowed"}, status_code=403)
@@ -497,9 +557,12 @@ async def add_user(request: Request):
 
     return {"status": "ok"}
 
-# Removes a user account from the user database.
 @app.delete("/api/users/{username}")
 def remove_user(username: str, request: Request):
+    """DELETE /api/users/<username>: delete an account and end its sessions.
+
+    Administrators cannot delete their own account. Admin only.
+    """
     admin = get_user(request)
     if not is_admin(admin):
         return JSONResponse({"error": "not allowed"}, status_code=403)
@@ -527,8 +590,8 @@ def remove_user(username: str, request: Request):
 
     return {"status": "ok"}
 
-# Starts the databases, MQTT client and FastAPI web server.
 def start():
+    """Set up the databases, connect to the MQTT broker and run the web server."""
     setup_databases()
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
