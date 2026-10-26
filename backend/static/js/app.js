@@ -6,7 +6,7 @@
  */
 "use strict";
 
-/* Returns page element with the given id */
+/* Returns the page element with the given id. */
 function E(id) {
     return document.getElementById(id);
 }
@@ -14,7 +14,7 @@ function E(id) {
 /* Sets an element's text if the element exists on this page. */
 function text(id, value) {
     const el = E(id);
-    if (el){
+    if (el) {
         el.textContent = value;
     }
 }

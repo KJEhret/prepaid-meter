@@ -109,7 +109,7 @@ async def form_data(request):
     return form
 
 def get_user(request):
-    """Return the logged in user's session or None.
+    """Return the logged-in user's session or None.
 
     The session is found with the "session" cookie set at login.
     """
@@ -122,14 +122,15 @@ def is_admin(user):
 def get_device(user):
     """Return the meter the user is working with.
 
-    Administrators use selected meter on the dashboard, clients use assigned meters.
+    Administrators use the meter selected on the dashboard. Clients use the
+    meter assigned to their account.
 
     Returns:
-        The meter's device ID or None
+        The meter's device ID, or None if no meter is selected.
     """
     if not user:
         return None
-    
+
     if is_admin(user):
         return user.get("selected_device")
     else:
@@ -138,7 +139,7 @@ def get_device(user):
 def setup_databases():
     """Create the meter.db and clients.db tables if they do not exist.
 
-    Creates an "admin" account if no admin user exists with a
+    Creates an "admin" account if no admin user exists, with a
     random password printed in the terminal.
     """
     with open_db(METER_DATABASE) as db:
@@ -168,14 +169,14 @@ def setup_databases():
                 role TEXT
             )
         """)
-        
+
         # Creates a default admin account only if no admin exists yet.
         existing = db.execute("SELECT id FROM users WHERE role = 'admin'").fetchone()
         if existing is None:
             admin_password = secrets.token_urlsafe(9) # creates a random 12 character password
             print("Created user 'admin' with password:", admin_password)
             db.execute("""
-                INSERT INTO users (username, password_hash, device_id, role) VALUES (?, ?, NULL, 'admin')""", 
+                INSERT INTO users (username, password_hash, device_id, role) VALUES (?, ?, NULL, 'admin')""",
             ("admin", hash_password(admin_password)))
 
 def find_user(username):
@@ -187,14 +188,14 @@ def find_user(username):
     return dict(row) if row else None
 
 def get_users():
-    """Return all user accounts (username, meter and role) for admin dashboard."""
+    """Return all user accounts (username, meter and role) for the admin dashboard."""
     with open_db(CLIENT_DATABASE) as db:
         rows = db.execute("""
             SELECT username, device_id, role
             FROM users
             ORDER BY username
         """).fetchall()
-    
+
     users = []
     for row in rows:
         users.append(dict(row))
@@ -212,7 +213,7 @@ def get_meter_ids():
         """).fetchall()
 
     for row in rows:
-       meter_ids.add(row["device_id"])
+        meter_ids.add(row["device_id"])
 
     return sorted(meter_ids)
 
@@ -242,7 +243,7 @@ def period_energy(device_id, prefix):
 
     if first is None or last is None:
         return 0.0
-    
+
     # Return the difference between the last and first readings
     return max(0.0, last["energy_kwh"] - first["energy_kwh"])
 
@@ -397,8 +398,8 @@ def latest(request: Request):
             WHERE device_id = ?
             ORDER BY id DESC LIMIT 1
         """, (device_id,)).fetchone()
-        
-    #check if the meter has sent any telemetry yet
+
+    # Check if the meter has sent any telemetry yet
     if row is None:
         return {"status": "waiting", "online": False}
 
@@ -447,11 +448,11 @@ def day_data(request: Request):
         return {"points": [], "total": 0.0}
     # first energy reading of the day
     start_energy = rows[0]["energy"]
-    
+
     points = []
     for row in rows:
         points.append({"time": row["time"], "energy": max(0.0, row["energy"] - start_energy)})
-        
+
     return {"points": points, "total": points[-1]["energy"]}
 
 @app.get("/api/month")
@@ -575,7 +576,7 @@ def remove_user(username: str, request: Request):
     admin = get_user(request)
     if not is_admin(admin):
         return JSONResponse({"error": "not allowed"}, status_code=403)
-    
+
     # Check if user is not trying to delete their own account
     if username == admin["username"]:
         return JSONResponse(
@@ -603,13 +604,13 @@ def remove_user(username: str, request: Request):
 def start():
     """Set up the databases, connect to the MQTT broker and run the web server."""
     setup_databases()
-    # Regisrter the MQTT callbacks
+    # Register the MQTT callbacks
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     # Connect to the MQTT broker and start the loop in a background thread
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
     mqtt_client.loop_start()
-    
+
     print("Dashboard: http://localhost:8000")
     print("Other devices on the network: http://<this-computer's-IP>:8000")
 
