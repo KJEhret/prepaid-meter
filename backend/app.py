@@ -265,6 +265,7 @@ def on_message(client, userdata, message):
         data = json.loads(message.payload.decode())
         device_id = message.topic.split("/")[1]  # meter/<device_id>/telemetry
 
+        # Store the reading in meter.db
         with open_db(METER_DATABASE) as db:
             db.execute("""
                 INSERT INTO telemetry (
@@ -304,6 +305,7 @@ async def login(request: Request):
     form = await form_data(request)
     user = find_user(form.get("username", ""))
 
+    # Check the username and password
     if user is None or not check_password(form.get("password", ""), user["password_hash"]):
         return templates.TemplateResponse(
             request=request,
@@ -312,6 +314,7 @@ async def login(request: Request):
             status_code=401
         )
 
+    # Create a new session with a random token
     token = secrets.token_urlsafe(32)
     sessions[token] = {
         "username": user["username"],
@@ -320,6 +323,7 @@ async def login(request: Request):
         "selected_device": None
     }
 
+    # Save the token in a cookie and go to the dashboard
     response = RedirectResponse("/", status_code=303)
     response.set_cookie("session", token, httponly=True, samesite="lax")
     return response
@@ -372,6 +376,7 @@ async def select_meter(request: Request):
     if device_id not in get_meter_ids():
         return JSONResponse({"error": "invalid meter"}, status_code=400)
 
+    # Save the selected meter in the session
     user["selected_device"] = device_id
     return {"status": "ok", "device_id": device_id}
 
@@ -407,6 +412,7 @@ def latest(request: Request):
     age = (datetime.now() - datetime.fromisoformat(data["timestamp"])).total_seconds()
     data["online"] = (age <= OFFLINE_SECONDS) # offline if no telemetry for more than 5s
 
+    # Show zeros if the meter is offline
     if not data["online"]:
         data.update({
             "vrms": 0,
@@ -488,6 +494,7 @@ async def set_load(request: Request):
     if value not in ("ON", "OFF"):
         return JSONResponse({"error": "invalid command"}, status_code=400)
 
+    # Send the command to the meter
     mqtt_client.publish(f"meter/{device_id}/load/set", value)
     return {"status": "ok"}
 
@@ -521,6 +528,7 @@ async def change_balance(request: Request):
     if action not in ("add", "set"):
         return JSONResponse({"error": "invalid action"}, status_code=400)
 
+    # Send the command to the meter
     mqtt_client.publish(f"meter/{device_id}/balance/{action}", value)
     return {"status": "ok"}
 
@@ -548,6 +556,7 @@ async def add_user(request: Request):
     if role not in ("admin", "client"):
         return JSONResponse({"error": "invalid role"}, status_code=400)
 
+    # Admins have no meter, clients need a valid meter
     if role == "admin":
         device_id = None
     elif not device_id or device_id not in get_meter_ids():
@@ -555,6 +564,7 @@ async def add_user(request: Request):
             {"error": "select a valid meter for the client"}, status_code=400
         )
 
+    # Add the user to the database
     try:
         with open_db(CLIENT_DATABASE) as db:
             db.execute("""
