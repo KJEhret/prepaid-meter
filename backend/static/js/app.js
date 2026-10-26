@@ -6,13 +6,17 @@
  */
 "use strict";
 
-/* Shorthand for document.getElementById. */
-const E = (id) => document.getElementById(id);
+/* Returns page element with the given id */
+function E(id) {
+    return document.getElementById(id);
+}
 
 /* Sets an element's text if the element exists on this page. */
 function text(id, value) {
     const el = E(id);
-    if (el) el.textContent = value;
+    if (el){
+        el.textContent = value;
+    }
 }
 
 /* Calls the API and returns its JSON reply; redirects to the login page if

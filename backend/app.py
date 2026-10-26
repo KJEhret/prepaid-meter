@@ -16,6 +16,7 @@ Backend design: report Section 3.3.4.
 
 import hashlib
 import json
+import math
 import secrets
 import sqlite3
 from datetime import datetime
@@ -108,7 +109,7 @@ async def form_data(request):
     return form
 
 def get_user(request):
-    """Return the logged-in user's session, or None.
+    """Return the logged in user's session or None.
 
     The session is found with the "session" cookie set at login.
     """
@@ -121,11 +122,10 @@ def is_admin(user):
 def get_device(user):
     """Return the meter the user is working with.
 
-    Administrators use the meter selected on the dashboard; clients use the
-    meter assigned to their account.
+    Administrators use selected meter on the dashboard, clients use assigned meters.
 
     Returns:
-        The meter's device ID, or None if no meter is selected.
+        The meter's device ID or None
     """
     if not user:
         return None
@@ -138,8 +138,8 @@ def get_device(user):
 def setup_databases():
     """Create the meter.db and clients.db tables if they do not exist.
 
-    Also creates an "admin" account if no administrator exists, with a
-    random password printed once in the console.
+    Creates an "admin" account if no admin user exists with a
+    random password printed in the terminal.
     """
     with open_db(METER_DATABASE) as db:
         db.execute("""
@@ -179,7 +179,7 @@ def setup_databases():
             ("admin", hash_password(admin_password)))
 
 def find_user(username):
-    """Return the user account with this username, or None."""
+    """Return the user account with this username or None."""
     with open_db(CLIENT_DATABASE) as db:
         row = db.execute(
             "SELECT * FROM users WHERE username = ?", (username,)
@@ -187,7 +187,7 @@ def find_user(username):
     return dict(row) if row else None
 
 def get_users():
-    """Return all user accounts (username, meter and role) for the admin dashboard."""
+    """Return all user accounts (username, meter and role) for admin dashboard."""
     with open_db(CLIENT_DATABASE) as db:
         rows = db.execute("""
             SELECT username, device_id, role
@@ -200,7 +200,6 @@ def get_users():
         users.append(dict(row))
     return users
 
-# Returns all known meter IDs from telemetry and client assignments.
 def get_meter_ids():
     """Return the sorted IDs of all meters that have sent telemetry."""
     meter_ids = set()
@@ -227,6 +226,7 @@ def period_energy(device_id, prefix):
     Returns:
         Last minus first cumulative energy reading in kWh, or 0 if there is no data.
     """
+    # Find the first and last energy_kwh readings for the device in the given period
     with open_db(METER_DATABASE) as db:
         first = db.execute("""
             SELECT energy_kwh FROM telemetry
@@ -242,6 +242,8 @@ def period_energy(device_id, prefix):
 
     if first is None or last is None:
         return 0.0
+    
+    # Return the difference between the last and first readings
     return max(0.0, last["energy_kwh"] - first["energy_kwh"])
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -301,9 +303,7 @@ async def login(request: Request):
     form = await form_data(request)
     user = find_user(form.get("username", ""))
 
-    if user is None or not check_password(
-        form.get("password", ""), user["password_hash"]
-    ):
+    if user is None or not check_password(form.get("password", ""), user["password_hash"]):
         return templates.TemplateResponse(
             request=request,
             name="login.html",
@@ -385,7 +385,9 @@ def latest(request: Request):
     if user is None:
         return JSONResponse({"error": "login required"}, status_code=401)
 
+    # Get the meter ID for user
     device_id = get_device(user)
+    # Check if the user has a meter assigned or selected
     if not device_id:
         return {"status": "waiting", "online": False}
 
@@ -395,13 +397,14 @@ def latest(request: Request):
             WHERE device_id = ?
             ORDER BY id DESC LIMIT 1
         """, (device_id,)).fetchone()
-
+        
+    #check if the meter has sent any telemetry yet
     if row is None:
         return {"status": "waiting", "online": False}
 
     data = dict(row)
     age = (datetime.now() - datetime.fromisoformat(data["timestamp"])).total_seconds()
-    data["online"] = age <= OFFLINE_SECONDS
+    data["online"] = (age <= OFFLINE_SECONDS) # offline if no telemetry for more than 5s
 
     if not data["online"]:
         data.update({
@@ -428,7 +431,7 @@ def day_data(request: Request):
 
     today = datetime.now().date().isoformat()
 
-    # One point per minute: the highest cumulative energy in that minute,
+    # One point per minute, the highest cumulative energy in that minute,
     # shifted so the day starts at zero.
     with open_db(METER_DATABASE) as db:
         rows = db.execute("""
@@ -442,12 +445,13 @@ def day_data(request: Request):
 
     if not rows:
         return {"points": [], "total": 0.0}
-
+    # first energy reading of the day
     start_energy = rows[0]["energy"]
-    points = [
-        {"time": row["time"], "energy": max(0.0, row["energy"] - start_energy)}
-        for row in rows
-    ]
+    
+    points = []
+    for row in rows:
+        points.append({"time": row["time"], "energy": max(0.0, row["energy"] - start_energy)})
+        
     return {"points": points, "total": points[-1]["energy"]}
 
 @app.get("/api/month")
@@ -505,8 +509,12 @@ async def change_balance(request: Request):
     value = form.get("value", "")
 
     try:
-        float(value)
+        balance = float(value)
     except ValueError:
+        return JSONResponse({"error": "invalid balance"}, status_code=400)
+
+    # Rejects negative values, nan and inf
+    if not 0 <= balance < math.inf:
         return JSONResponse({"error": "invalid balance"}, status_code=400)
 
     if action not in ("add", "set"):
@@ -563,15 +571,17 @@ def remove_user(username: str, request: Request):
 
     Administrators cannot delete their own account. Admin only.
     """
+    # Check permissions
     admin = get_user(request)
     if not is_admin(admin):
         return JSONResponse({"error": "not allowed"}, status_code=403)
-
+    
+    # Check if user is not trying to delete their own account
     if username == admin["username"]:
         return JSONResponse(
             {"error": "you cannot remove your own account"}, status_code=400
         )
-
+    # Remove the user from the database
     with open_db(CLIENT_DATABASE) as db:
         user = db.execute(
             "SELECT username FROM users WHERE username = ?", (username,)
@@ -583,7 +593,7 @@ def remove_user(username: str, request: Request):
         db.execute(
             "DELETE FROM users WHERE username = ?", (username,)
         )
-
+    # Remove sessions for the deleted user
     for token, session in list(sessions.items()):
         if session["username"] == username:
             sessions.pop(token)
@@ -593,11 +603,13 @@ def remove_user(username: str, request: Request):
 def start():
     """Set up the databases, connect to the MQTT broker and run the web server."""
     setup_databases()
+    # Regisrter the MQTT callbacks
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
+    # Connect to the MQTT broker and start the loop in a background thread
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
     mqtt_client.loop_start()
-
+    
     print("Dashboard: http://localhost:8000")
     print("Other devices on the network: http://<this-computer's-IP>:8000")
 
